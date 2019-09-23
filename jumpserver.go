@@ -3,12 +3,16 @@ package jumpserver
 import (
 	"bytes"
 	"encoding/json"
+
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -20,6 +24,7 @@ const (
 	headerRateRemaining = "X-RateLimit-Remaining"
 	headerRateReset     = "X-RateLimit-Reset"
 	headerOTP           = "X-GitHub-OTP"
+
 )
 
 // httpClient defines an interface for an http.Client implementation so that alternative
@@ -37,7 +42,8 @@ type Client struct {
 	baseURL *url.URL
 
 	// Services used for talking to different parts of the JIRA API.
-	Users *UsersService
+	Users  *UsersService
+	Assets *AssetsService
 }
 
 func NewClient(httpClient httpClient, baseURL string) (*Client, error) {
@@ -62,7 +68,7 @@ func NewClient(httpClient httpClient, baseURL string) (*Client, error) {
 
 	// services
 	c.Users = &UsersService{client: c}
-
+	c.Assets = &AssetsService{client: c}
 	return c, nil
 }
 
@@ -272,6 +278,8 @@ type TokenAuthTransport struct {
 	Password string // JumpServer password
 	AuthURL  string // JumpServer auth url
 
+	Token    string
+
 	OTP      string // one-time password for users with two-factor auth enabled
 
 	// Transport is the underlying HTTP transport to use when making requests.
@@ -294,11 +302,87 @@ func (t *TokenAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 		req2.Header[k] = append([]string(nil), s...)
 	}
 
+	if t.Token == "" {
+		err := t.setTokenAuth()
+		if err != nil {
+			return nil, errors.Wrap(err, "token auth: set token auth failed")
+		}
+	}
+
+	err := t.signRequest(req2)
+	if err != nil {
+		return nil, err
+	}
+
 	if t.OTP != "" {
 		req2.Header.Set(headerOTP, t.OTP)
 	}
 	return t.transport().RoundTrip(req2)
 }
+func (t *TokenAuthTransport) signRequest(req *http.Request) error {
+	if t.Token == "" {
+		return errors.New("token auth: token auth is empty")
+	}
+
+	token := fmt.Sprintf("Bearer %s", t.Token)
+	req.Header.Set("Authorization", token)
+
+	return nil
+}
+
+func (t *TokenAuthTransport) buildAuthRequest() (*http.Request, error) {
+	body := struct {
+		Username   string `json:"username"`
+		Password   string `json:"password"`
+		PublicKey  string `json:"public_key"`
+		RemoteAddr string `json:"remote_addr"`
+		LoginType  string `json:"login_type"`
+	}{
+		Username:   t.Username,
+		Password:   t.Password,
+		PublicKey:  "",
+		RemoteAddr: "",
+		LoginType:  "T",
+	}
+
+	b := new(bytes.Buffer)
+	json.NewEncoder(b).Encode(body)
+
+	req, err := http.NewRequest("POST", t.AuthURL, b)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+
+}
+
+func (t *TokenAuthTransport) setTokenAuth() error {
+	req, err := t.buildAuthRequest()
+	if err != nil {
+		return err
+	}
+
+	var authClient = &http.Client{
+		Timeout: time.Second * 60,
+	}
+	resp, err := authClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	authInfo := new(AuthenticateInfo)
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(authInfo)
+	if err != nil {
+		return err
+	}
+
+	t.Token = authInfo.Token
+	return nil
+}
+
 
 // Client returns an *http.Client that makes requests that are authenticated
 // using HTTP Basic Authentication.

@@ -37,18 +37,25 @@ func main() {
 		return
 	}
 
-	_, _, err = client.Users.Authenticate(username, password, "", "", "T")
+	// search
+	matchUserList, _, err := client.Users.Search("admin")
 	if err != nil {
 		fmt.Printf("\nerror: %v\n", err)
 		return
+	}
+	for _, user := range matchUserList {
+		fmt.Println(user.Email)
 	}
 
-	user, _, err := client.Users.Get("admin")
+	// list
+	userList, _, err := client.Users.GetList()
 	if err != nil {
 		fmt.Printf("\nerror: %v\n", err)
 		return
 	}
-	fmt.Print(user.Username)
+	for _, user := range userList {
+		fmt.Println(user.Email)
+	}
 
 
 }

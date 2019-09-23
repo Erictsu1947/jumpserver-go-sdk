@@ -68,14 +68,14 @@ type User struct {
 	Permissions *map[string]bool `json:"permissions,omitempty"`
 }
 
-func (s *UsersService) GetList() ([]User, *Response, error) {
+func (s *UsersService) GetList() ([]*User, *Response, error) {
 	apiEndpoint := "/api/users/v1/users/"
 	req, err := s.client.NewRequest("GET", apiEndpoint, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	userList := []User{}
+	var userList []*User
 	resp, err := s.client.Do(req, &userList)
 	if err != nil {
 		return nil, resp, err
@@ -83,47 +83,17 @@ func (s *UsersService) GetList() ([]User, *Response, error) {
 	return userList, resp, nil
 }
 
-func (s *UsersService) Get(username string) (*User, *Response, error) {
+func (s *UsersService) Search(username string) ([]*User, *Response, error) {
 	apiEndpoint := fmt.Sprintf("/api/users/v1/users/?username=%s", username)
 	req, err := s.client.NewRequest("GET", apiEndpoint, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	user := new(User)
-	resp, err := s.client.Do(req, &user)
+	var userList []*User
+	resp, err := s.client.Do(req, &userList)
 	if err != nil {
 		return nil, resp, err
 	}
-	return user, resp, nil
-}
-
-func (s *UsersService) Authenticate(username string, password string, publicKey string, remoteAddr string, loginType string) (*AuthenticateInfo, *Response, error) {
-	apiEndpoint := "/api/users/v1/auth/"
-	body := struct {
-		Username   string `json:"username"`
-		Password   string `json:"password"`
-		PublicKey  string `json:"public_key"`
-		RemoteAddr string `json:"remote_addr"`
-		LoginType  string `json:"login_type"`
-	}{
-		Username:   username,
-		Password:   password,
-		PublicKey:  publicKey,
-		RemoteAddr: remoteAddr,
-		LoginType:  loginType,
-	}
-
-	req, err := s.client.NewRequest("POST", apiEndpoint, body)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	info := new(AuthenticateInfo)
-	resp, err := s.client.Do(req, &info)
-
-	if err != nil {
-		return nil, resp, err
-	}
-	return info, resp, nil
+	return userList, resp, nil
 }
